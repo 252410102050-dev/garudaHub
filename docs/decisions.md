@@ -21,3 +21,4 @@
 | 2026-10-25 | Tanpa header X-Frame-Options/CSP (di luar Opsi A) | Keputusan pemilik via Telegram |
 | 2026-10-25 | Password minimal tetap 6 karakter | Keputusan pemilik via Telegram |
 | 2026-10-25 | Default DB root/password kosong dipertahankan bila env var kosong; README wajib beri peringatan | Keputusan pemilik via Telegram |
+| 2026-10-25 | Tes integrasi dijalankan pada MariaDB lokal yang sudah ada (port 3306, DB garuda_hub, data dummy diimpor ulang dari `src/database.sql`); kredensial hanya lewat env var, tidak ditulis ke berkas | Izin pemilik via Telegram; 28 skenario alur + 9 skenario admin lulus |
