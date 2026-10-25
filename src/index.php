@@ -142,18 +142,142 @@ function internal_error(Throwable $ex): never {
 set_exception_handler('internal_error');
 
 // ===== M2: auth =====
-function session_boot(): void { abort(501, 'Belum diimplementasikan.'); }
-function current_user(): ?array { abort(501, 'Belum diimplementasikan.'); }
-function need_role(string ...$roles): array { abort(501, 'Belum diimplementasikan.'); }
-function csrf(): string { abort(501, 'Belum diimplementasikan.'); }
-function csrf_field(): string { abort(501, 'Belum diimplementasikan.'); }
-function check_csrf(): void { abort(501, 'Belum diimplementasikan.'); }
-function auth_register(string $nama, string $email, string $pw, string $role): string { abort(501, 'Belum diimplementasikan.'); }
-function auth_login(string $email, string $pw): string { abort(501, 'Belum diimplementasikan.'); }
-function auth_logout(): void { abort(501, 'Belum diimplementasikan.'); }
-function page_register(): void { abort(501, 'Belum diimplementasikan.'); }
-function page_login(): void { abort(501, 'Belum diimplementasikan.'); }
-function page_logout(): void { abort(501, 'Belum diimplementasikan.'); }
+const AUTH_DUMMY_HASH = '$2y$12$bpzlaJ2igPGuYZPnSM78AuhcDeRtqXFvxu0XTgnL.gMUbcwrbS1OK';
+const PW_MIN = 6;
+const PW_MAX = 72; // batas efektif bcrypt; cegah pemotongan diam-diam
+
+function session_boot(): void {
+    if (session_status() === PHP_SESSION_ACTIVE) return;
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    session_set_cookie_params([
+        'lifetime' => 0, 'path' => '/', 'secure' => $https,
+        'httponly' => true, 'samesite' => 'Lax',
+    ]);
+    session_start();
+}
+function auth_forget(): void {
+    unset($GLOBALS['GH_USER']);
+    if (session_status() !== PHP_SESSION_ACTIVE) return;
+    $_SESSION = [];
+    $p = session_get_cookie_params();
+    setcookie(session_name(), '', [
+        'expires' => time() - 3600, 'path' => $p['path'], 'secure' => $p['secure'],
+        'httponly' => true, 'samesite' => 'Lax',
+    ]);
+    session_destroy();
+}
+function current_user(): ?array {
+    if (array_key_exists('GH_USER', $GLOBALS)) return $GLOBALS['GH_USER'];
+    if (session_status() !== PHP_SESSION_ACTIVE || !isset($_SESSION['uid'])) return null;
+    $rows = q('SELECT id, nama, role FROM users WHERE id = ?', 'i', [(int)$_SESSION['uid']]);
+    if (!$rows) { auth_forget(); return null; } // user dihapus -> sesi berakhir
+    $r = $rows[0];
+    return $GLOBALS['GH_USER'] = ['id' => (int)$r['id'], 'nama' => (string)$r['nama'], 'role' => (string)$r['role']];
+}
+function need_role(string ...$roles): array {
+    $u = current_user();
+    if ($u === null) go('?page=login');
+    if ($roles && !in_array($u['role'], $roles, true)) abort(403, 'Anda tidak berhak mengakses halaman ini.');
+    return $u;
+}
+function csrf(): string {
+    if (empty($_SESSION['csrf']) || !is_string($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
+    return $_SESSION['csrf'];
+}
+function csrf_field(): string {
+    return '<input type="hidden" name="csrf" value="' . e(csrf()) . '">';
+}
+function check_csrf(): void {
+    $t = $_POST['csrf'] ?? '';
+    $s = $_SESSION['csrf'] ?? '';
+    if (!is_string($t) || !is_string($s) || $s === '' || !hash_equals($s, $t)) {
+        abort(403, 'Token keamanan tidak valid. Muat ulang halaman lalu coba lagi.');
+    }
+}
+function auth_register(string $nama, string $email, string $pw, string $role): string {
+    $nama = trim($nama);
+    $email = strtolower(trim($email));
+    if ($nama === '' || mb_strlen($nama) > 100) return 'Nama wajib diisi (maksimal 100 karakter).';
+    if (strlen($email) > 100 || !filter_var($email, FILTER_VALIDATE_EMAIL)) return 'Format email tidak valid.';
+    if (strlen($pw) < PW_MIN) return 'Password minimal ' . PW_MIN . ' karakter.';
+    if (strlen($pw) > PW_MAX) return 'Password maksimal ' . PW_MAX . ' karakter.';
+    if (!in_array($role, SELF_ROLES, true)) return 'Peran tidak valid.';
+    try {
+        q('INSERT INTO users (nama, email, password, role) VALUES (?, ?, ?, ?)', 'ssss',
+            [$nama, $email, password_hash($pw, PASSWORD_DEFAULT), $role]);
+    } catch (mysqli_sql_exception $ex) {
+        if ((int)$ex->getCode() === 1062) return 'Email sudah terdaftar.';
+        throw $ex;
+    }
+    return '';
+}
+function auth_login(string $email, string $pw): string {
+    $email = strtolower(trim($email));
+    $gagal = 'Email atau password salah.';
+    $rows = (strlen($email) <= 100 && strlen($pw) <= 1024)
+        ? q('SELECT id, password FROM users WHERE email = ?', 's', [$email]) : [];
+    $u = $rows[0] ?? null;
+    // Hash dummy bila email tak dikenal -> waktu respons setara
+    $ok = password_verify($pw, $u['password'] ?? AUTH_DUMMY_HASH);
+    if ($u === null || !$ok) return $gagal;
+    session_regenerate_id(true);
+    $_SESSION['uid'] = (int)$u['id'];
+    unset($_SESSION['csrf'], $GLOBALS['GH_USER']);
+    if (password_needs_rehash($u['password'], PASSWORD_DEFAULT)) {
+        q('UPDATE users SET password = ? WHERE id = ?', 'si', [password_hash($pw, PASSWORD_DEFAULT), (int)$u['id']]);
+    }
+    return '';
+}
+function auth_logout(): void {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') abort(405, 'Metode tidak diizinkan.');
+    check_csrf();
+    auth_forget();
+}
+function auth_home(array $u): never {
+    go($u['role'] === 'admin' ? '?page=admin' : '?page=dashboard');
+}
+function page_register(): void {
+    if ($u = current_user()) auth_home($u);
+    $nama = ''; $email = ''; $role = 'klien';
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        $nama = (string)($_POST['nama'] ?? '');
+        $email = (string)($_POST['email'] ?? '');
+        $role = (string)($_POST['role'] ?? '');
+        $err = auth_register($nama, $email, (string)($_POST['password'] ?? ''), $role);
+        if ($err === '') { flash('Pendaftaran berhasil. Silakan masuk.'); go('?page=login'); }
+        flash($err, 'err');
+    }
+    $opt = '';
+    foreach (SELF_ROLES as $r) $opt .= '<option value="' . e($r) . '"' . ($r === $role ? ' selected' : '') . '>' . e(ucfirst($r)) . '</option>';
+    render('Daftar', '<div class="card"><h1>Daftar</h1><form method="post" action="?page=register">' . csrf_field()
+        . '<label>Nama</label><input name="nama" maxlength="100" required value="' . e($nama) . '">'
+        . '<label>Email</label><input name="email" type="email" maxlength="100" required value="' . e($email) . '">'
+        . '<label>Password (min. ' . PW_MIN . ' karakter)</label><input name="password" type="password" minlength="' . PW_MIN . '" maxlength="' . PW_MAX . '" required autocomplete="new-password">'
+        . '<label>Peran</label><select name="role">' . $opt . '</select>'
+        . '<p><button type="submit">Daftar</button></p></form></div>');
+}
+function page_login(): void {
+    if ($u = current_user()) auth_home($u);
+    $email = '';
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        $email = (string)($_POST['email'] ?? '');
+        $err = auth_login($email, (string)($_POST['password'] ?? ''));
+        if ($err === '') { flash('Selamat datang kembali.'); $u = current_user(); if ($u) auth_home($u); go('?page=home'); }
+        flash($err, 'err');
+    }
+    render('Masuk', '<div class="card"><h1>Masuk</h1><form method="post" action="?page=login">' . csrf_field()
+        . '<label>Email</label><input name="email" type="email" maxlength="100" required value="' . e($email) . '">'
+        . '<label>Password</label><input name="password" type="password" required autocomplete="current-password">'
+        . '<p><button type="submit">Masuk</button></p></form></div>');
+}
+function page_logout(): void {
+    auth_logout();
+    session_boot();
+    flash('Anda telah keluar.');
+    go('?page=home');
+}
 
 // ===== M3: proyek =====
 function project_find(int $id): ?array { abort(501, 'Belum diimplementasikan.'); }
