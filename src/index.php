@@ -28,7 +28,7 @@ function e(mixed $v): string { return htmlspecialchars((string)$v, ENT_QUOTES, '
 function rp(int|string $n): string { return 'Rp ' . number_format((int)$n, 0, ',', '.'); }
 // Hanya URL relatif "?page=..." yang diizinkan (cegah open redirect).
 function go(string $url): never {
-    if (!preg_match('/^\?page=[a-z]+(&[A-Za-z0-9_=%.-]*)?$/', $url)) $url = '?page=home';
+    if (!preg_match('/^\?page=[a-z]+(&[A-Za-z0-9_=%.-]*)?\z/', $url)) $url = '?page=home';
     header('Location: ' . $url);
     exit;
 }
@@ -280,13 +280,130 @@ function page_logout(): void {
 }
 
 // ===== M3: proyek =====
-function project_find(int $id): ?array { abort(501, 'Belum diimplementasikan.'); }
-function project_list(string $cari): array { abort(501, 'Belum diimplementasikan.'); }
-function project_is_open(array $p): bool { abort(501, 'Belum diimplementasikan.'); }
-function project_create(int $clientId, array $in): string { abort(501, 'Belum diimplementasikan.'); }
-function page_home(): void { abort(501, 'Belum diimplementasikan.'); }
-function page_project(): void { abort(501, 'Belum diimplementasikan.'); }
-function page_post(): void { abort(501, 'Belum diimplementasikan.'); }
+const PROJ_JUDUL_MAX = 200;
+const PROJ_DESK_MAX = 5000;
+const PROJ_KAT_MAX = 50;
+const PROJ_BUDGET_MAX = 999999999999; // 12 digit, aman untuk BIGINT
+const PROJ_CARI_MAX = 100;
+
+function project_find(int $id): ?array {
+    $r = q('SELECT p.*, u.nama AS klien FROM projects p JOIN users u ON u.id = p.client_id WHERE p.id = ?', 'i', [$id]);
+    return $r[0] ?? null;
+}
+function project_list(string $cari): array {
+    $sql = 'SELECT p.*, u.nama AS klien, (SELECT COUNT(*) FROM bids b WHERE b.project_id = p.id) AS jml
+            FROM projects p JOIN users u ON u.id = p.client_id';
+    $cari = mb_substr(trim($cari), 0, PROJ_CARI_MAX);
+    if ($cari === '') return q($sql . ' ORDER BY p.id DESC');
+    // Escape wildcard LIKE agar input pengguna dicari apa adanya
+    $like = '%' . addcslashes($cari, '\\%_') . '%';
+    return q($sql . ' WHERE p.judul LIKE ? OR p.kategori LIKE ? ORDER BY p.id DESC', 'ss', [$like, $like]);
+}
+function project_is_open(array $p): bool {
+    return ($p['status'] ?? '') === 'terbuka' && (string)($p['batas_lelang'] ?? '') >= date('Y-m-d');
+}
+// Mengembalikan '' bila sukses, atau pesan galat. $clientId HARUS dari sesi, bukan form.
+function project_create(int $clientId, array $in): string {
+    $judul = trim((string)($in['judul'] ?? ''));
+    $desk = trim((string)($in['deskripsi'] ?? ''));
+    $kat = trim((string)($in['kategori'] ?? ''));
+    $bmin = trim((string)($in['bmin'] ?? ''));
+    $bmax = trim((string)($in['bmax'] ?? ''));
+    $batas = trim((string)($in['batas'] ?? ''));
+    if ($judul === '' || mb_strlen($judul) > PROJ_JUDUL_MAX) return 'Judul wajib diisi (maksimal ' . PROJ_JUDUL_MAX . ' karakter).';
+    if ($desk === '' || mb_strlen($desk) > PROJ_DESK_MAX) return 'Deskripsi wajib diisi (maksimal ' . PROJ_DESK_MAX . ' karakter).';
+    if ($kat === '' || mb_strlen($kat) > PROJ_KAT_MAX) return 'Kategori wajib diisi (maksimal ' . PROJ_KAT_MAX . ' karakter).';
+    if (!preg_match('/\A[0-9]{1,12}\z/', $bmin) || !preg_match('/\A[0-9]{1,12}\z/', $bmax)) return 'Budget harus berupa angka bulat tidak negatif.';
+    $bmin = (int)$bmin; $bmax = (int)$bmax;
+    if ($bmax < $bmin) return 'Budget tidak valid (maks harus >= min).';
+    $d = preg_match('/\A\d{4}-\d{2}-\d{2}\z/', $batas) ? DateTime::createFromFormat('!Y-m-d', $batas) : false;
+    if (!$d || $d->format('Y-m-d') !== $batas || $batas < date('Y-m-d')) return 'Batas lelang harus tanggal yang valid dan belum lewat.';
+    // Pertahanan berlapis: pemilik harus benar-benar user berperan klien
+    $r = q('SELECT role FROM users WHERE id = ?', 'i', [$clientId]);
+    if (!$r || $r[0]['role'] !== 'klien') return 'Hanya klien yang dapat memasang proyek.';
+    q('INSERT INTO projects (client_id, judul, deskripsi, kategori, budget_min, budget_max, batas_lelang) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'isssiis', [$clientId, $judul, $desk, $kat, $bmin, $bmax, $batas]);
+    return '';
+}
+function page_home(): void {
+    $s = $_GET['q'] ?? '';
+    $s = is_string($s) ? mb_substr(trim($s), 0, PROJ_CARI_MAX) : '';
+    $rows = project_list($s);
+    $h = '<div class="card"><h1>Daftar Proyek</h1><form class="search" method="get"><input type="hidden" name="page" value="home">'
+       . '<input name="q" maxlength="' . PROJ_CARI_MAX . '" placeholder="Cari judul atau kategori..." value="' . e($s) . '"><button>Cari</button></form>'
+       . ($s !== '' ? '<p class="muted">Hasil pencarian untuk: <b>' . e($s) . '</b> (' . count($rows) . ' proyek)</p>' : '') . '</div>';
+    if (!$rows) $h .= '<div class="card"><p>Belum ada proyek yang cocok.</p></div>';
+    foreach ($rows as $p) {
+        $h .= '<div class="card"><h2><a href="?page=project&amp;id=' . (int)$p['id'] . '">' . e($p['judul']) . '</a> ' . status_badge((string)$p['status']) . '</h2>'
+            . '<p class="muted">Kategori: ' . e($p['kategori']) . ' | Klien: ' . e($p['klien']) . ' | Budget: ' . rp($p['budget_min']) . ' - ' . rp($p['budget_max'])
+            . ' | Batas: ' . e($p['batas_lelang']) . ' | ' . (int)$p['jml'] . ' penawaran</p>'
+            . '<p>' . e(mb_strimwidth((string)$p['deskripsi'], 0, 160, '...')) . '</p></div>';
+    }
+    render('Proyek', $h);
+}
+function page_project(): void {
+    $id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+    $p = ($id !== false && $id > 0) ? project_find($id) : null;
+    if ($p === null) abort(404, 'Proyek tidak ditemukan.');
+    $u = current_user();
+    $bids = bids_for_project((int)$p['id']);
+    $owner = $u && $u['role'] === 'klien' && $u['id'] === (int)$p['client_id'];
+    $open = project_is_open($p);
+    $h = '<div class="card"><h1>' . e($p['judul']) . ' ' . status_badge((string)$p['status']) . '</h1>'
+       . '<p class="muted">Kategori: ' . e($p['kategori']) . ' | Klien: ' . e($p['klien']) . ' | Budget: ' . rp($p['budget_min']) . ' - ' . rp($p['budget_max'])
+       . ' | Batas lelang: ' . e($p['batas_lelang']) . '</p>'
+       . '<p>' . nl2br(e($p['deskripsi'])) . '</p></div>';
+    $h .= '<div class="card"><h2>Penawaran (' . count($bids) . ')</h2>';
+    if (!$bids) $h .= '<p>Belum ada penawaran.</p>';
+    else {
+        $h .= '<table><tr><th>Developer</th><th>Harga</th><th>Durasi</th><th>Proposal</th><th></th></tr>';
+        foreach ($bids as $b) {
+            $win = !empty($b['is_winner']);
+            $h .= '<tr class="' . ($win ? 'winner' : '') . '"><td>' . e($b['dev']) . ($win ? ' <span class="badge win">Pemenang</span>' : '') . '</td>'
+                . '<td>' . rp($b['harga']) . '</td><td>' . (int)$b['durasi'] . ' hari</td><td>' . nl2br(e($b['proposal'])) . '</td><td>';
+            if ($owner && $p['status'] === 'terbuka') {
+                $h .= '<form method="post" action="?page=pick" onsubmit="return confirm(\'Pilih penawaran ini sebagai pemenang?\')">' . csrf_field()
+                    . '<input type="hidden" name="project_id" value="' . (int)$p['id'] . '"><input type="hidden" name="bid_id" value="' . (int)$b['id'] . '">'
+                    . '<button class="sm">Pilih pemenang</button></form>';
+            }
+            $h .= '</td></tr>';
+        }
+        $h .= '</table>';
+    }
+    $h .= '</div>';
+    if ($u && $u['role'] === 'developer') {
+        if ($open) {
+            $h .= '<div class="card"><h2>Ajukan Penawaran</h2><form method="post" action="?page=bid">' . csrf_field()
+                . '<input type="hidden" name="project_id" value="' . (int)$p['id'] . '">'
+                . '<div class="row"><div><label>Harga (Rp)</label><input type="number" name="harga" min="1" required></div>'
+                . '<div><label>Durasi (hari)</label><input type="number" name="durasi" min="1" required></div></div>'
+                . '<label>Proposal</label><textarea name="proposal" required></textarea><p><button>Kirim penawaran</button></p></form></div>';
+        } else $h .= '<div class="card"><p class="muted">Lelang sudah ditutup; penawaran tidak dapat diajukan.</p></div>';
+    } elseif (!$u && $open) {
+        $h .= '<div class="card"><p><a href="?page=login">Masuk</a> sebagai developer untuk mengajukan penawaran.</p></div>';
+    }
+    render((string)$p['judul'], $h);
+}
+function page_post(): void {
+    $u = need_role('klien'); // peran dimuat dari DB; client_id selalu $u['id']
+    $err = '';
+    $v = ['judul' => '', 'deskripsi' => '', 'kategori' => '', 'bmin' => '', 'bmax' => '', 'batas' => ''];
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        foreach ($v as $k => $_) { $x = $_POST[$k] ?? ''; $v[$k] = is_string($x) ? $x : ''; }
+        $err = project_create($u['id'], $v);
+        if ($err === '') { flash('Proyek berhasil dipasang.'); go('?page=dashboard'); }
+    }
+    $h = '<div class="card"><h1>Pasang Proyek</h1>' . ($err ? '<div class="flash err">' . e($err) . '</div>' : '')
+       . '<form method="post" action="?page=post">' . csrf_field()
+       . '<label>Judul</label><input name="judul" maxlength="' . PROJ_JUDUL_MAX . '" required value="' . e($v['judul']) . '">'
+       . '<label>Deskripsi</label><textarea name="deskripsi" maxlength="' . PROJ_DESK_MAX . '" required>' . e($v['deskripsi']) . '</textarea>'
+       . '<label>Kategori</label><input name="kategori" maxlength="' . PROJ_KAT_MAX . '" placeholder="Web, Mobile, Desain, Data, AI..." required value="' . e($v['kategori']) . '">'
+       . '<div class="row"><div><label>Budget minimum (Rp)</label><input type="number" name="bmin" min="0" required value="' . e($v['bmin']) . '"></div>'
+       . '<div><label>Budget maksimum (Rp)</label><input type="number" name="bmax" min="0" required value="' . e($v['bmax']) . '"></div>'
+       . '<div><label>Batas lelang</label><input type="date" name="batas" required value="' . e($v['batas']) . '"></div></div>'
+       . '<p><button>Pasang proyek</button></p></form></div>';
+    render('Pasang Proyek', $h);
+}
 
 // ===== M4: lelang =====
 function bids_for_project(int $pid): array { abort(501, 'Belum diimplementasikan.'); }
