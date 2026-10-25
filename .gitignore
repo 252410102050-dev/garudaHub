@@ -1,0 +1,22 @@
+# Rahasia
+.env
+.env.*
+*.pem
+*.key
+
+# Dependensi & build
+node_modules/
+dist/
+__pycache__/
+.venv/
+
+# Lokal Claude
+.claude/settings.local.json
+
+# Perkakas tim agen (tidak dipublikasikan)
+.claude/
+CLAUDE.md
+SETUP.md
+
+# Kunci jawaban celah untuk dosen (tidak dipublikasikan)
+docs/VULNERABILITIES.md
