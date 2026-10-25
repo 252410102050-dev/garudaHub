@@ -12,4 +12,4 @@ Penolakan: jumlah review blocking (0–3)
 | T3 | proyek (M3) `modul/proyek` | F2, F3 | sedang | selesai | 0 | Non-blocking: pasang date_default_timezone_set di inti; batas lelang lampau ditolak (tidak di spec); detail proyek 501 sampai M4 |
 | T4 | lelang (M4) `modul/lelang` | F4, F5 | sedang | selesai | 0 | Non-blocking: bid_create tak mengunci baris proyek (TOCTOU kecil dgn pick); bid_pick tak cek affected rows |
 | T5 | dasbor (M5) `modul/dasbor` | F6 | rendah | selesai | 0 | Admin mendapat 403 di dasbor (sesuai kontrak; tautan disembunyikan) |
-| T6 | admin (M6) `modul/admin` — kelola user ditulis ulang | F7 | sedang | todo | 0 | |
+| T6 | admin (M6) `modul/admin` — kelola user ditulis ulang | F7 | sedang | selesai | 0 | Non-blocking: race sempit dua admin saling menurunkan (catat di VULNERABILITIES); pesan "Peran user diubah" muncul walau tak berubah (~543) |
