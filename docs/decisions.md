@@ -14,3 +14,10 @@
 | 2026-10-25 | Kredensial DB dibaca dari env var (getenv), tidak di-hardcode di index.php | Mencegah rahasia ter-commit ke GitHub |
 | 2026-10-25 | Password dummy di `database.sql` diganti hash bcrypt; app memakai `password_verify`, CSRF token sesi, prepared statement | Aplikasi normal sesuai Opsi A |
 | 2026-10-25 | Gerbang dibuka: /approve evolve, fitur F1–F7 disetujui | Prototype berfungsi penuh & sesuai spec; auth (F1) tetap ditulis ulang |
+| 2026-10-25 | Rekomendasi architect: evolve | Struktur prototype rapi, stack sama dengan rencana final, utang teknis kecil (skema tanpa constraint, peran sesi basi, race F5) |
+| 2026-10-25 | Tetap 2 file; modul M0–M6 = `src/database.sql` + bagian berlabel di `src/index.php`, dibangun berurutan (tanpa paralel) | Patuh spec "tepat 2 file"; cegah konflik merge antar-branch `modul/<nama>` |
+| 2026-10-25 | Data pribadi (tabel/dummy `users`, kelola user di F7) ikut ditulis ulang bersama F1 | Aturan keamanan CLAUDE.md |
+| 2026-10-25 | Logout via POST + CSRF; peran dimuat ulang dari DB per request; password minimal 8 karakter; skema pakai UNIQUE/FK CASCADE/ENUM | Praktik standar Opsi A, menutup celah yang ada di prototype (lihat `salvage.md`) |
+| 2026-10-25 | Tanpa header X-Frame-Options/CSP (di luar Opsi A) | Keputusan pemilik via Telegram |
+| 2026-10-25 | Password minimal tetap 6 karakter | Keputusan pemilik via Telegram |
+| 2026-10-25 | Default DB root/password kosong dipertahankan bila env var kosong; README wajib beri peringatan | Keputusan pemilik via Telegram |
