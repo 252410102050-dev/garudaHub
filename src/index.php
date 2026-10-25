@@ -470,9 +470,41 @@ function page_pick(): void {
 }
 
 // ===== M5: dasbor =====
-function client_projects(int $uid): array { abort(501, 'Belum diimplementasikan.'); }
-function developer_bids(int $uid): array { abort(501, 'Belum diimplementasikan.'); }
-function page_dashboard(): void { abort(501, 'Belum diimplementasikan.'); }
+// $uid HARUS dari sesi. Proyek milik klien tersebut beserta jumlah penawarannya.
+function client_projects(int $uid): array {
+    return q('SELECT p.*, (SELECT COUNT(*) FROM bids b WHERE b.project_id = p.id) AS jml
+              FROM projects p WHERE p.client_id = ? ORDER BY p.id DESC', 'i', [$uid]);
+}
+// $uid HARUS dari sesi. Penawaran milik developer tersebut beserta status proyeknya.
+function developer_bids(int $uid): array {
+    return q('SELECT b.*, p.judul, p.status, p.batas_lelang, u.nama AS klien
+              FROM bids b JOIN projects p ON p.id = b.project_id JOIN users u ON u.id = p.client_id
+              WHERE b.developer_id = ? ORDER BY b.id DESC', 'i', [$uid]);
+}
+function page_dashboard(): void {
+    $u = need_role(...SELF_ROLES);
+    if ($u['role'] === 'klien') {
+        $rows = client_projects($u['id']);
+        $h = '<div class="card"><h1>Proyek Saya</h1><p><a href="?page=post">Pasang proyek baru</a></p></div>';
+        if (!$rows) $h .= '<div class="card"><p>Anda belum memasang proyek.</p></div>';
+        foreach ($rows as $p) {
+            $h .= '<div class="card"><h2><a href="?page=project&amp;id=' . (int)$p['id'] . '">' . e($p['judul']) . '</a> ' . status_badge((string)$p['status']) . '</h2>'
+                . '<p class="muted">Budget: ' . rp($p['budget_min']) . ' - ' . rp($p['budget_max'])
+                . ' | Batas: ' . e($p['batas_lelang']) . ' | ' . (int)$p['jml'] . ' penawaran</p></div>';
+        }
+    } else {
+        $rows = developer_bids($u['id']);
+        $h = '<div class="card"><h1>Penawaran Saya</h1></div>';
+        if (!$rows) $h .= '<div class="card"><p>Anda belum mengajukan penawaran.</p></div>';
+        foreach ($rows as $b) {
+            $h .= '<div class="card"><h2><a href="?page=project&amp;id=' . (int)$b['project_id'] . '">' . e($b['judul']) . '</a> ' . status_badge((string)$b['status'])
+                . ((int)$b['is_winner'] === 1 ? ' <span class="badge open">Pemenang</span>' : '') . '</h2>'
+                . '<p class="muted">Klien: ' . e($b['klien']) . ' | Harga: ' . rp($b['harga']) . ' | Durasi: ' . (int)$b['durasi'] . ' hari'
+                . ' | Batas: ' . e($b['batas_lelang']) . '</p></div>';
+        }
+    }
+    render('Dasbor', $h);
+}
 
 // ===== M6: admin =====
 function admin_set_role(int $actorId, int $uid, string $role): string { abort(501, 'Belum diimplementasikan.'); }
