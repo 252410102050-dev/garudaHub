@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 // ===== M1: inti =====
 ini_set('display_errors', '0');
+date_default_timezone_set('Asia/Jakarta');
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 const ROLES = ['klien', 'developer', 'admin'];
@@ -406,11 +407,67 @@ function page_post(): void {
 }
 
 // ===== M4: lelang =====
-function bids_for_project(int $pid): array { abort(501, 'Belum diimplementasikan.'); }
-function bid_create(int $devId, int $pid, int $harga, int $durasi, string $proposal): string { abort(501, 'Belum diimplementasikan.'); }
-function bid_pick(int $clientId, int $pid, int $bidId): string { abort(501, 'Belum diimplementasikan.'); }
-function page_bid(): void { abort(501, 'Belum diimplementasikan.'); }
-function page_pick(): void { abort(501, 'Belum diimplementasikan.'); }
+const BID_HARGA_MAX = 999999999999;
+const BID_DURASI_MAX = 3650;
+const BID_PROPOSAL_MAX = 5000;
+
+function bids_for_project(int $pid): array {
+    return q('SELECT b.*, u.nama AS dev FROM bids b JOIN users u ON u.id = b.developer_id
+              WHERE b.project_id = ? ORDER BY b.is_winner DESC, b.harga ASC, b.id ASC', 'i', [$pid]);
+}
+// '' bila sukses, atau pesan galat. $devId HARUS dari sesi.
+function bid_create(int $devId, int $pid, int $harga, int $durasi, string $proposal): string {
+    $proposal = trim($proposal);
+    if ($harga < 1 || $harga > BID_HARGA_MAX) return 'Harga harus bilangan bulat positif yang wajar.';
+    if ($durasi < 1 || $durasi > BID_DURASI_MAX) return 'Durasi harus 1 sampai ' . BID_DURASI_MAX . ' hari.';
+    if ($proposal === '' || mb_strlen($proposal) > BID_PROPOSAL_MAX) return 'Proposal wajib diisi (maksimal ' . BID_PROPOSAL_MAX . ' karakter).';
+    $r = q('SELECT role FROM users WHERE id = ?', 'i', [$devId]);
+    if (!$r || $r[0]['role'] !== 'developer') return 'Hanya developer yang dapat mengajukan penawaran.';
+    $p = project_find($pid);
+    if ($p === null) return 'Proyek tidak ditemukan.';
+    if (!project_is_open($p)) return 'Lelang sudah ditutup; penawaran tidak dapat diajukan.';
+    try {
+        q('INSERT INTO bids (project_id, developer_id, harga, durasi, proposal) VALUES (?, ?, ?, ?, ?)',
+            'iiiis', [$pid, $devId, $harga, $durasi, $proposal]);
+    } catch (mysqli_sql_exception $ex) {
+        if ((int)$ex->getCode() === 1062) return 'Anda sudah mengajukan penawaran pada proyek ini.';
+        throw $ex;
+    }
+    return '';
+}
+// '' bila sukses, atau pesan galat. $clientId HARUS dari sesi.
+function bid_pick(int $clientId, int $pid, int $bidId): string {
+    return (string)tx(function () use ($clientId, $pid, $bidId): string {
+        // Kepemilikan dicek di SQL; baris proyek dikunci agar tak ada dua pemenang
+        $p = q('SELECT id, status FROM projects WHERE id = ? AND client_id = ? FOR UPDATE', 'ii', [$pid, $clientId]);
+        if (!$p) return 'Proyek tidak ditemukan atau bukan milik Anda.';
+        if ($p[0]['status'] !== 'terbuka') return 'Pemenang sudah dipilih atau lelang sudah ditutup.';
+        $b = q('SELECT id FROM bids WHERE id = ? AND project_id = ?', 'ii', [$bidId, $pid]);
+        if (!$b) return 'Penawaran tidak valid untuk proyek ini.';
+        q('UPDATE bids SET is_winner = 1 WHERE id = ? AND project_id = ?', 'ii', [$bidId, $pid]);
+        q("UPDATE projects SET status = 'ditutup' WHERE id = ? AND client_id = ?", 'ii', [$pid, $clientId]);
+        return '';
+    });
+}
+function post_int(string $k): int {
+    $v = $_POST[$k] ?? null;
+    return (is_string($v) && preg_match('/\A[0-9]{1,12}\z/', $v)) ? (int)$v : 0;
+}
+function page_bid(): void {
+    $u = need_role('developer');
+    $pid = post_int('project_id');
+    $proposal = $_POST['proposal'] ?? '';
+    $err = bid_create($u['id'], $pid, post_int('harga'), post_int('durasi'), is_string($proposal) ? $proposal : '');
+    if ($err === '') flash('Penawaran berhasil dikirim.'); else flash($err, 'err');
+    go($pid > 0 ? '?page=project&id=' . $pid : '?page=home');
+}
+function page_pick(): void {
+    $u = need_role('klien');
+    $pid = post_int('project_id');
+    $err = bid_pick($u['id'], $pid, post_int('bid_id'));
+    if ($err === '') flash('Pemenang berhasil dipilih.'); else flash($err, 'err');
+    go($pid > 0 ? '?page=project&id=' . $pid : '?page=home');
+}
 
 // ===== M5: dasbor =====
 function client_projects(int $uid): array { abort(501, 'Belum diimplementasikan.'); }
