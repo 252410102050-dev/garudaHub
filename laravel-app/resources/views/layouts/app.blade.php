@@ -11,6 +11,9 @@
 <nav class="flex items-center gap-4 bg-slate-900 px-6 py-3 text-white">
     <a href="/" class="mr-auto text-xl font-bold">🦅 Garuda-Hub</a>
     @auth
+    @if (auth()->user()->role === 'klien')
+        <a href="{{ route('projects.create') }}" class="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-semibold hover:bg-blue-700">+ Pasang Proyek</a>
+    @endif
         <span class="text-sm text-slate-300">{{ auth()->user()->name }} ({{ auth()->user()->role }})</span>
         <form method="POST" action="/logout">
             @csrf
