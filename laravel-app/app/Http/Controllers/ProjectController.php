@@ -67,4 +67,60 @@ class ProjectController extends Controller
         return to_route('projects.show', $project)
             ->with('success', 'Proyekmu wes tayang, tinggal nunggu developer podo rebutan.');
     }
+
+    // Form edit proyek (pemilik atau admin)
+    public function edit(Project $project)
+    {
+        $this->otorisasi($project);
+
+        return view('projects.edit', ['project' => $project]);
+    }
+
+    // Simpan perubahan proyek
+    public function update(Request $request, Project $project)
+    {
+        $this->otorisasi($project);
+
+        $validated = $request->validate([
+            'judul' => 'required|string|max:200',
+            'deskripsi' => 'required|string',
+            'kategori' => 'required|string|max:50',
+            'budget_min' => 'required|integer|min:0',
+            'budget_max' => 'required|integer|gte:budget_min',
+            'batas_lelang' => 'required|date',
+            'status' => 'required|in:terbuka,ditutup',
+        ], [
+            'required' => ':attribute ojo dikosongno talah, diisi sek.',
+            'integer' => ':attribute kudu angka lur.',
+            'budget_max.gte' => 'Budget maksimal ojo luwih cilik teko budget minimal, iso-isone.',
+        ]);
+
+        $project->update($validated);
+
+        return to_route('projects.show', $project)
+            ->with('success', 'Proyek wes dibenerno, mantep.');
+    }
+
+    // Hapus proyek (penawaran ikut terhapus lewat cascade)
+    public function destroy(Project $project)
+    {
+        $this->otorisasi($project);
+
+        $project->delete();
+
+        return to_route('projects.index')
+            ->with('success', 'Proyek wes dibuang, ilang tanpa jejak.');
+    }
+
+    // Hanya pemilik proyek atau admin
+    private function otorisasi(Project $project): void
+    {
+        $user = auth()->user();
+
+        abort_unless(
+            $user->id === $project->client_id || $user->role === 'admin',
+            403,
+            'Iki dudu proyekmu, ojo ndemek-ndemek.'
+        );
+    }
 }
