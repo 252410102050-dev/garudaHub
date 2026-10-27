@@ -35,7 +35,7 @@ class AuthController extends Controller
         Auth::login($user);
         $request->session()->regenerate();
 
-        return redirect('/')->with('status', 'Kon wes daftar le, welcum welcum!');
+        return redirect('/')->with('success', 'Kon wes daftar le, welcum welcum!');
     }
 
     public function showLogin()
@@ -58,7 +58,7 @@ class AuthController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect('/')->with('status', 'Wes login yo, ojo lali ngopi sek.');
+        return redirect('/')->with('success', 'Wes login yo, ojo lali ngopi sek.');
     }
 
     public function logout(Request $request)
@@ -67,6 +67,6 @@ class AuthController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect('/login')->with('status', 'Wes metu yo, ati-ati nang dalan.');
+        return redirect('/login')->with('success', 'Wes metu yo, ati-ati nang dalan.');
     }
 }
