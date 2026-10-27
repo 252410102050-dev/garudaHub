@@ -20,6 +20,12 @@ class Project extends Model
         ];
     }
 
+    // Lelang masih bisa ditawar: status terbuka DAN belum lewat batas
+    public function bisaDitawar(): bool
+    {
+        return $this->status === 'terbuka' && $this->batas_lelang->gte(today());
+    }
+
     public function client(): BelongsTo
     {
         return $this->belongsTo(User::class, 'client_id');
