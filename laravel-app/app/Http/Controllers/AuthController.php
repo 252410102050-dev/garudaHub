@@ -35,7 +35,7 @@ class AuthController extends Controller
         Auth::login($user);
         $request->session()->regenerate();
 
-        return redirect('/')->with('success', 'Kon wes daftar le, welcum welcum!');
+        return to_route('projects.index')->with('success', 'Kon wes daftar le, welcum welcum!');
     }
 
     public function showLogin()
@@ -58,7 +58,7 @@ class AuthController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect('/')->with('success', 'Wes login yo, ojo lali ngopi sek.');
+        return to_route('projects.index')->with('success', 'Wes login yo, ojo lali ngopi sek.');
     }
 
     public function logout(Request $request)
