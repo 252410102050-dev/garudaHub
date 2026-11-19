@@ -1,10 +1,12 @@
 <?php
+// NIM: 252410102050 - Ahlul Fikri Firdaus (Garuda-Hub Episode 2)
 
 namespace App\Http\Controllers;
 
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rules\Password;
 
 class AuthController extends Controller
 {
@@ -13,6 +15,8 @@ class AuthController extends Controller
         'email' => 'Format email-mu aneh lur, sing bener o.',
         'email.unique' => 'Email iki wes dipakai uwong, golek sing liyane o.',
         'password.min' => 'Password kependekan lur, minimal 8 karakter.',
+        'password.letters' => 'Password-e kudu enek hurufe, Bos.',
+        'password.numbers' => 'Password-e kudu enek angkane, Bos.',
         'password.confirmed' => 'Password karo ulangane bedo, sing konsisten o.',
         'role.in' => 'Role-e sing bener o, iku gak onok pilihane.',
     ];
@@ -27,7 +31,7 @@ class AuthController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'password' => ['required', 'string', 'confirmed', Password::min(8)->letters()->numbers()],
             'role' => ['required', 'in:klien,developer'],
         ], $this->pesan);
 
