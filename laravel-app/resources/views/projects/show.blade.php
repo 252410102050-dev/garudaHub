@@ -103,7 +103,7 @@
     </div>
 @endauth
 
-<h2 class="mb-3 mt-6 text-xl font-bold">Penawaran ({{ $project->bids->count() }})</h2>
+<h2 class="mb-3 mt-6 text-xl font-bold">Daftar Penawaran ({{ $project->bids->count() }})</h2>
 
 <div class="space-y-3">
     @forelse ($project->bids as $bid)
