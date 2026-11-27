@@ -15,8 +15,8 @@ class ProjectController extends Controller
         $projects = Project::with('client')
             ->withCount('bids')
             ->when($q, function ($query) use ($q) {
-                $query->where('judul', 'like', "%{$q}%")
-                      ->orWhere('kategori', 'like', "%{$q}%");
+                $query->whereLike('judul', "%{$q}%")
+                      ->orWhereLike('kategori', "%{$q}%");
             })
             ->latest()
             ->get();
